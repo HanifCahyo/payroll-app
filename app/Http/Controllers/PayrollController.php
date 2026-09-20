@@ -6,10 +6,11 @@ use App\Models\PayrollImport;
 use App\Models\PayrollEmployee;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
+use Inertia\Response;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx as XlsxReader;
 
 class PayrollController extends Controller
@@ -19,7 +20,7 @@ class PayrollController extends Controller
         'rekening' => 'REKENING',
         'bank' => 'BANK',
         'nama' => 'NAMA',
-        'department' => 'DEPARTMENT',
+        'departement' => 'DEPARTEMENT',
         'lembur_biasa' => 'LEMBUR BIASA',
         'jam_lb' => 'JAM LB',
         'jumlah_lb' => 'JUMLAH LB',
@@ -27,46 +28,32 @@ class PayrollController extends Controller
         'jam_ll' => 'JAM LL',
         'jumlah_ll' => 'JUMLAH LL',
         'total_lembur' => 'TOTAL LEMBUR',
-        'email' => 'EMAIL', 
+        'email' => 'EMAIL',
     ];
 
-    private const STRING_FIELDS = [ 'nip', 'rekening', 'bank', 'nama', 'department', 'email'];
+    private const STRING_FIELDS = ['nip', 'rekening', 'bank', 'nama', 'departement', 'email'];
 
-    public function uploadForm(Request $request)
+    public function form(Request $request): Response
     {
-        $initialType = in_array($request->query('type'), ['salary', 'overtime'])
-            ? $request->query('type')
-            : 'salary';
-
         return Inertia::render('Payroll/Upload', [
-            'initialType' => $initialType,
             'recentImports' => PayrollImport::latest()->withCount('employees')->limit(5)->get(),
         ]);
     }
 
-    public function index()
-    {
-        return Inertia::render('Payroll/Index', [
-            'imports' => PayrollImport::where(function ($q) {
-                $q->where('type', 'salary')->orWhereNull('type');
-            })->latest()->withCount('employees')->get(),
-        ]);
-    }
-
-    public function overtimeIndex()
+    public function overtimeIndex(): Response
     {
         return Inertia::render('Payroll/Overtime', [
             'imports' => PayrollImport::where('type', 'overtime')->latest()->withCount('employees')->get(),
         ]);
     }
 
-    public function upload(Request $request)
+    public function upload(Request $request): RedirectResponse
     {
         ini_set('max_execution_time', 300);
         set_time_limit(300);
 
         $request->validate([
-            'type' => 'required|string|in:salary,overtime',
+            'type' => 'nullable|string|in:overtime',
             'file' => [
                 'required',
                 'file',
@@ -88,7 +75,10 @@ class PayrollController extends Controller
         $reader->setReadDataOnly(true);
         $spreadsheet = $reader->load($filePath);
 
-        $sheet = $spreadsheet->getActiveSheet();
+        $sheetName = trim((string) $request->input('sheet_name', ''));
+        $sheet = $sheetName !== '' && $spreadsheet->sheetNameExists($sheetName)
+            ? $spreadsheet->getSheetByName($sheetName)
+            : $spreadsheet->getActiveSheet();
         $allRows = $sheet->toArray(
             null,
             true,
@@ -119,9 +109,9 @@ class PayrollController extends Controller
             }
         }
 
-        if (!isset($fieldToLetter['nip_baru']) && !isset($fieldToLetter['nip'])) {
+        if (!isset($fieldToLetter['nip'])) {
             return back()->withErrors([
-                'file' => "Kolom 'NIP BARU' atau 'NIP' tidak ditemukan di file Excel. Pastikan format file sudah benar."
+                'file' => "Kolom 'NIP' tidak ditemukan di file Excel. Pastikan format file sudah benar."
             ]);
         }
 
@@ -145,13 +135,14 @@ class PayrollController extends Controller
             return back()->withErrors(['file' => 'Tidak ada data karyawan yang ditemukan di file.']);
         }
 
-        $type = in_array($request->type, ['salary', 'overtime']) ? $request->type : 'salary';
+        $type = 'overtime';
 
         $import = PayrollImport::create([
             'file_name' => $request->file('file')->getClientOriginalName(),
             'type' => $type,
             'period' => strtoupper(trim($request->period)),
             'period_range' => trim($request->period_range),
+            'sheet_name' => $sheet->getTitle(),
             'total_rows' => $totalRows,
             'status' => 'ready',
         ]);
@@ -191,12 +182,13 @@ class PayrollController extends Controller
         $spreadsheet->disconnectWorksheets();
         unset($spreadsheet, $allRows, $dataRows);
 
-        $redirectRoute = $type === 'overtime' ? 'payroll.overtime.detail' : 'payroll.detail';
-
-        return redirect()->route($redirectRoute, $import->id)
-            ->with('success', "Berhasil import {$totalRows} karyawan untuk data " . ($type === 'overtime' ? 'Lembur' : 'Gaji') . ".");
+        return redirect()->route('payroll.overtime.detail', $import->id)
+            ->with('success', "Berhasil import {$totalRows} karyawan untuk data lembur.");
     }
 
+    /** @param array<string, list<string>> $nameToLetters
+     *  @return array<string, string>
+     */
     private function resolveColumnLetters(array $nameToLetters): array
     {
         $usedCount = [];
@@ -241,16 +233,7 @@ class PayrollController extends Controller
         return is_numeric($str) ? (float) $str : 0.0;
     }
 
-    public function detail(PayrollImport $import)
-    {
-        return Inertia::render('Payroll/Detail', [
-            'import' => $import,
-            'employees' => $import->employees()->orderBy('row_number')->get(),
-            'pendingJobsCount' => DB::table('jobs')->count(),
-        ]);
-    }
-
-    public function overtimeDetail(PayrollImport $import)
+    public function overtimeDetail(PayrollImport $import): Response
     {
         return Inertia::render('Payroll/OvertimeDetail', [
             'import' => $import,
@@ -261,7 +244,7 @@ class PayrollController extends Controller
 
     private static function getPhpCliBinary(): string
     {
-        if (defined('PHP_BINARY') && PHP_BINARY) {
+        if (defined('PHP_BINARY')) {
             $binary = PHP_BINARY;
             if (!preg_match('/(fpm|cgi)/i', basename($binary)) && file_exists($binary) && is_executable($binary)) {
                 return $binary;
@@ -269,12 +252,12 @@ class PayrollController extends Controller
 
             $cliCandidate = preg_replace('/php-(fpm|cgi)/i', 'php', $binary);
             $cliCandidate = str_replace(['sbin/php', 'sbin\\php'], ['bin/php', 'bin\\php'], $cliCandidate);
-            if ($cliCandidate && file_exists($cliCandidate) && is_executable($cliCandidate)) {
+            if (file_exists($cliCandidate) && is_executable($cliCandidate)) {
                 return $cliCandidate;
             }
         }
 
-        if (defined('PHP_BINDIR') && PHP_BINDIR) {
+        if (defined('PHP_BINDIR')) {
             $cliBinary = PHP_BINDIR . (str_contains(PHP_OS, 'WIN') ? DIRECTORY_SEPARATOR . 'php.exe' : DIRECTORY_SEPARATOR . 'php');
             if (file_exists($cliBinary) && is_executable($cliBinary)) {
                 return $cliBinary;
@@ -310,14 +293,17 @@ class PayrollController extends Controller
 
         if (str_contains(PHP_OS, 'WIN')) {
             $cmd = sprintf('start /B "" %s %s queue:work --stop-when-empty --rest=1', escapeshellarg($phpBinary), escapeshellarg($artisanPath));
-            pclose(popen($cmd, 'r'));
+            $process = popen($cmd, 'r');
+            if (is_resource($process)) {
+                pclose($process);
+            }
         } else {
             $cmd = sprintf('nohup %s %s queue:work --stop-when-empty --rest=1 > /dev/null 2>&1 &', escapeshellarg($phpBinary), escapeshellarg($artisanPath));
             exec($cmd);
         }
     }
 
-    public function processQueue()
+    public function processQueue(): RedirectResponse
     {
         $pendingCount = DB::table('jobs')->count();
 
@@ -334,7 +320,7 @@ class PayrollController extends Controller
         return back()->with('success', "Worker antrean background berhasil dipemicu untuk {$pendingCount} email. Pengiriman berjalan di latar belakang secara otomatis sampai selesai.");
     }
 
-    public function cancelQueue()
+    public function cancelQueue(): RedirectResponse
     {
         $pendingCount = DB::table('jobs')->count();
 
@@ -352,43 +338,16 @@ class PayrollController extends Controller
         return back()->with('success', "Berhasil membatalkan dan membersihkan {$pendingCount} antrean email.");
     }
 
-    public function exportPdf(PayrollEmployee $employee)
-    {
-        $pdf = Pdf::loadView('pdf.slip', [
-            'employee' => $employee,
-            'import' => $employee->import,
-        ])->setPaper('a4', 'portrait');
-
-        $nip = $employee->nip_baru ?: $employee->nip;
-        $filename = "SlipGaji_{$nip}_{$employee->import->period}.pdf";
-        return $pdf->download($filename);
-    }
-
-    public function exportOvertimePdf(PayrollEmployee $employee)
+    public function exportOvertimePdf(PayrollEmployee $employee): \Illuminate\Http\Response
     {
         $pdf = Pdf::loadView('pdf.overtime', [
             'employee' => $employee,
             'import' => $employee->import,
         ])->setPaper('a4', 'portrait');
 
-        $nip = $employee->nip_baru ?: $employee->nip;
+        $nip = $employee->nip;
         $filename = "SlipLembur_{$nip}_{$employee->import->period}.pdf";
         return $pdf->download($filename);
-    }
-
-    public static function generateAndStorePdf(PayrollEmployee $employee): string
-    {
-        $pdf = Pdf::loadView('pdf.slip', [
-            'employee' => $employee,
-            'import' => $employee->import,
-        ])->setPaper('a4', 'portrait');
-
-        $nip = $employee->nip_baru ?: $employee->nip;
-        $path = "payroll/slip_{$employee->id}_{$nip}.pdf";
-        Storage::put($path, $pdf->output());
-        $employee->update(['pdf_path' => $path]);
-
-        return $path;
     }
 
     public static function generateAndStoreOvertimePdf(PayrollEmployee $employee): string
@@ -398,14 +357,14 @@ class PayrollController extends Controller
             'import' => $employee->import,
         ])->setPaper('a4', 'portrait');
 
-        $nip = $employee->nip_baru ?: $employee->nip;
+        $nip = $employee->nip;
         $path = "payroll/overtime_{$employee->id}_{$nip}.pdf";
         Storage::put($path, $pdf->output());
 
         return $path;
     }
 
-    public function destroy(PayrollImport $import)
+    public function destroy(PayrollImport $import): RedirectResponse
     {
         foreach ($import->employees as $employee) {
             if ($employee->pdf_path && Storage::exists($employee->pdf_path)) {
@@ -418,7 +377,7 @@ class PayrollController extends Controller
         return back()->with('success', 'Data import payroll berhasil dihapus.');
     }
 
-    public function updateEmployee(Request $request, PayrollEmployee $employee)
+    public function updateEmployee(Request $request, PayrollEmployee $employee): RedirectResponse
     {
         $validated = $request->validate([
             'nip' => 'nullable|string|max:100',
@@ -449,7 +408,7 @@ class PayrollController extends Controller
         return back()->with('success', "Data karyawan '{$employee->nama}' berhasil diperbarui.");
     }
 
-    public function destroyEmployee(PayrollEmployee $employee)
+    public function destroyEmployee(PayrollEmployee $employee): RedirectResponse
     {
         if ($employee->pdf_path && Storage::exists($employee->pdf_path)) {
             Storage::delete($employee->pdf_path);

@@ -12,11 +12,12 @@ class PayrollImport extends Model
         'type',
         'period',
         'period_range',
-        'sheet_name',   
+        'sheet_name',
         'total_rows',
         'status',
     ];
 
+    /** @return HasMany<PayrollEmployee, $this> */
     public function employees(): HasMany
     {
         return $this->hasMany(PayrollEmployee::class);

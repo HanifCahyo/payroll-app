@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class EmailQuota extends Model
 {
     protected $fillable = ['mail_configuration_id', 'quota_date', 'sent_count', 'daily_limit'];
     protected $casts = ['quota_date' => 'date'];
 
-    public function mailConfiguration()
+    /** @return BelongsTo<MailConfiguration, $this> */
+    public function mailConfiguration(): BelongsTo
     {
         return $this->belongsTo(MailConfiguration::class);
     }
@@ -26,5 +28,5 @@ class EmailQuota extends Model
         if ($this->percentage >= 80)
             return 'warning';
         return 'ok';
-    }   
+    }
 }

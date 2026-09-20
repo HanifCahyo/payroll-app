@@ -7,35 +7,25 @@ use App\Models\MailConfiguration;
 use App\Models\PayrollEmployee;
 use App\Models\PayrollImport;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 class PayrollEmailController extends Controller
 {
-    private const TYPE_SALARY = PayrollSlipMail::TYPE_SALARY;
     private const TYPE_OVERTIME = PayrollSlipMail::TYPE_OVERTIME;
 
-    public function sendOne(PayrollEmployee $employee)
-    {
-        return $this->sendSingleDocument($employee, self::TYPE_SALARY);
-    }
-
-    public function sendOvertimeOne(PayrollEmployee $employee)
+    public function sendOvertimeOne(PayrollEmployee $employee): RedirectResponse
     {
         return $this->sendSingleDocument($employee, self::TYPE_OVERTIME);
     }
 
-    public function sendBulk(Request $request, PayrollImport $import)
-    {
-        return $this->dispatchBulkDocument($request, $import, self::TYPE_SALARY);
-    }
-
-    public function sendOvertimeBulk(Request $request, PayrollImport $import)
+    public function sendOvertimeBulk(Request $request, PayrollImport $import): RedirectResponse
     {
         return $this->dispatchBulkDocument($request, $import, self::TYPE_OVERTIME);
     }
 
-    private function sendSingleDocument(PayrollEmployee $employee, string $documentType)
+    private function sendSingleDocument(PayrollEmployee $employee, string $documentType): RedirectResponse
     {
         if (empty($employee->email)) {
             return back()->with('error', 'Email karyawan kosong.');
@@ -63,7 +53,7 @@ class PayrollEmailController extends Controller
         return back()->with('success', $this->singleSuccessMessage($employee->email, $documentType, $config->name));
     }
 
-    private function dispatchBulkDocument(Request $request, PayrollImport $import, string $documentType)
+    private function dispatchBulkDocument(Request $request, PayrollImport $import, string $documentType): RedirectResponse
     {
         $request->validate([
             'from' => 'required|integer|min:1',
@@ -110,23 +100,17 @@ class PayrollEmailController extends Controller
 
     private function generatePdfForType(PayrollEmployee $employee, string $documentType): string
     {
-        return $documentType === self::TYPE_OVERTIME
-            ? PayrollController::generateAndStoreOvertimePdf($employee)
-            : PayrollController::generateAndStorePdf($employee);
+        return PayrollController::generateAndStoreOvertimePdf($employee);
     }
 
     private function singleSuccessMessage(string $email, string $documentType, string $configName): string
     {
-        $label = $documentType === self::TYPE_OVERTIME ? 'slip lembur' : 'slip gaji';
-
-        return "Email {$label} terkirim ke {$email} via {$configName}";
+        return "Email slip lembur terkirim ke {$email} via {$configName}";
     }
 
     private function bulkSuccessMessage(int $totalDispatched, int $totalEmployees, string $documentType): string
     {
-        $label = $documentType === self::TYPE_OVERTIME ? 'job email lembur' : 'job email gaji';
-
-        $message = "Berhasil dispatch {$totalDispatched} {$label}.";
+        $message = "Berhasil dispatch {$totalDispatched} job email lembur.";
         if ($totalDispatched < $totalEmployees) {
             $message .= " (" . ($totalEmployees - $totalDispatched) . " tertunda karena quota penuh)";
         }

@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
@@ -15,7 +14,7 @@ return new class extends Migration
             $table->id();
             $table->string('file_name');
             $table->string('type')->default('salary');
-            $table->string('sheet_name')->nullable();
+            $table->string('sheet_name')->nullable()->default('GAJI BULANAN');
             $table->string('period');             // "APRIL 2026"
             $table->string('period_range');       // "26 Maret - 28 April 2026"
             $table->integer('total_rows')->default(0);

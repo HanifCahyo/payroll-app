@@ -33,6 +33,7 @@ class PayrollEmployee extends Model
         'email_sent_at' => 'datetime',
     ];
 
+    /** @return BelongsTo<PayrollImport, $this> */
     public function import(): BelongsTo
     {
         return $this->belongsTo(PayrollImport::class, 'payroll_import_id');

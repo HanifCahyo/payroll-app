@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class MailConfiguration extends Model
 {
@@ -20,7 +22,7 @@ class MailConfiguration extends Model
         'is_active',
     ];
 
-     public function setPasswordAttribute(string $value): void
+    public function setPasswordAttribute(string $value): void
     {
         $normalized = preg_replace('/[^a-zA-Z0-9]/', '', trim($value));
         $this->attributes['password'] = encrypt($normalized ?? '');
@@ -36,7 +38,7 @@ class MailConfiguration extends Model
         return static::where('is_active', true)->firstOrFail();
     }
 
-     public static function applyToMailer(self $config): void
+    public static function applyToMailer(self $config): void
     {
         config([
             'mail.default' => 'smtp',
@@ -52,13 +54,15 @@ class MailConfiguration extends Model
         app('mail.manager')->purge('smtp');
     }
 
-    public function emailQuota()
+    /** @return HasOne<EmailQuota, $this> */
+    public function emailQuota(): HasOne
     {
         return $this->hasOne(EmailQuota::class, 'mail_configuration_id')
             ->where('quota_date', today());
     }
 
-    public function quotas()
+    /** @return HasMany<EmailQuota, $this> */
+    public function quotas(): HasMany
     {
         return $this->hasMany(EmailQuota::class, 'mail_configuration_id');
     }
@@ -66,7 +70,7 @@ class MailConfiguration extends Model
     public function getRemainingQuota(): int
     {
         $quota = $this->emailQuota()->first() ?? $this->initializeQuotaForToday();
-        return max(0, $quota->daily_limit - $quota->sent_count);
+        return max(0, (int) $quota->daily_limit - (int) $quota->sent_count);
     }
 
     public function canSendEmail(): bool
@@ -99,12 +103,12 @@ class MailConfiguration extends Model
         return $this->emailQuota()->first() ?? $this->initializeQuotaForToday();
     }
 
-    public static function getActiveWithQuota()
+    public static function getActiveWithQuota(): ?self
     {
         return static::query()
             ->orderByDesc('is_active')
             ->orderBy('id')
             ->get()
-            ->first(fn($config) => $config->canSendEmail());
+            ->first(static fn(self $config): bool => $config->canSendEmail());
     }
 }

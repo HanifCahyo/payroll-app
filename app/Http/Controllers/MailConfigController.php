@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Models\MailConfiguration;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -36,7 +37,7 @@ class MailConfigController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request): RedirectResponse
     {
         $request->validate([
             'name' => 'required|string|max:100',
@@ -59,7 +60,7 @@ class MailConfigController extends Controller
         return back()->with('success', 'Konfigurasi berhasil ditambahkan.');
     }
 
-    public function update(Request $request, MailConfiguration $mailConfiguration)
+    public function update(Request $request, MailConfiguration $mailConfiguration): RedirectResponse
     {
         $data = $request->validate([
             'name' => 'required|string|max:100',
@@ -85,20 +86,20 @@ class MailConfigController extends Controller
         return back()->with('success', 'Konfigurasi berhasil diupdate.');
     }
 
-    public function destroy(MailConfiguration $mailConfiguration)
+    public function destroy(MailConfiguration $mailConfiguration): RedirectResponse
     {
         $mailConfiguration->delete();
         return back()->with('success', 'Konfigurasi dihapus.');
     }
 
-    public function setActive(MailConfiguration $mailConfiguration)
+    public function setActive(MailConfiguration $mailConfiguration): RedirectResponse
     {
         MailConfiguration::query()->update(['is_active' => false]);
         $mailConfiguration->update(['is_active' => true]);
         return back()->with('success', "{$mailConfiguration->name} sekarang aktif.");
     }
 
-    public function testSend(Request $request, MailConfiguration $mailConfiguration)
+    public function testSend(Request $request, MailConfiguration $mailConfiguration): RedirectResponse
     {
         $request->validate(['to' => 'required|email']);
         MailConfiguration::applyToMailer($mailConfiguration);
